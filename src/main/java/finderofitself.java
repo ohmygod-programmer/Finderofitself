@@ -5,7 +5,7 @@ import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
 
-public class main {
+public class finderofitself {
 
     private static final String ENCRYPTION_ALGORITHM = "AES";
     private static final String ENCODED_SECRET_KEY = "+CjoihtUUH39pRj6ZjfmjfBaTG8NXVAs2wSlIT6IfoY=";
@@ -18,9 +18,10 @@ public class main {
     private static final int ITERATIONS_TO_DELETE = 3;
     private static final ArrayList<HashSet<InetAddress>> pastAdresses = new ArrayList<>();
 
+    public static final int SIZE_OF_DATAGRAMS = 200; //in bytes
     public static final int SOCKET_TIMEOUT = 1000; //in milliseconds
     public static final int TIME_TO_RECEIVE = 1000; //in milliseconds
-
+    public static final int SIZE_OF_TIME_ERROR = 1000; //in milliseconds. Need because ping
 
     public static String encrypt(String input, SecretKey key) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException,
             BadPaddingException, IllegalBlockSizeException {
@@ -31,11 +32,12 @@ public class main {
         return Base64.getEncoder()
                 .encodeToString(cipherText);
     }
-    public static String decrypt(String algorithm, String cipherText, SecretKey key) throws NoSuchPaddingException, NoSuchAlgorithmException,
+
+    public static String decrypt(String cipherText, SecretKey key) throws NoSuchPaddingException, NoSuchAlgorithmException,
             InvalidKeyException,
             BadPaddingException, IllegalBlockSizeException {
 
-        Cipher cipher = Cipher.getInstance(algorithm);
+        Cipher cipher = Cipher.getInstance(ENCRYPTION_ALGORITHM);
         cipher.init(Cipher.DECRYPT_MODE, key);
         byte[] plainText = cipher.doFinal(Base64.getDecoder()
                 .decode(cipherText));
@@ -50,11 +52,20 @@ public class main {
             datagramPacket = p;
         }
         @Override
-        public void run() {
-            for (int i = 0; i < 8; i++){
+        public void run(){
+            while (true){
                 Long curTime = System.currentTimeMillis();
                 String s = curTime.toString();
-                datagramPacket.setData(s.getBytes());
+                String encryptedS;
+                try {
+                    encryptedS = encrypt(s, SECRET_KEY);
+                    datagramPacket.setData(encryptedS.getBytes());
+
+                }
+                catch (Exception e){
+                    System.out.println(e);
+                    datagramPacket.setData(s.getBytes());
+                }
                 try {
                     multicastSocket.send(datagramPacket);
                     Thread.sleep(TIME_TO_RECEIVE);
@@ -67,69 +78,86 @@ public class main {
         }
     }
 
+
     public static int checkDatagramArray(ArrayList<DatagramPacket> array, long mintime, long maxtime){
-        HashSet<InetAddress>  enabledAdresses1 = new HashSet<>();
-        HashSet<InetAddress>  enabledAdresses2 = new HashSet<>();
-        HashSet<InetAddress>  newEnabledAdresses = new HashSet<>();
+        HashSet<InetAddress>  enabledAddresses1 = new HashSet<>();
+        HashSet<InetAddress>  enabledAddresses2 = new HashSet<>();
+        HashSet<InetAddress>  newEnabledAddresses = new HashSet<>();
         for (int i = 0; i<ITERATIONS_TO_DELETE; i++){
-            enabledAdresses1.addAll(pastAdresses.get(i));
+            enabledAddresses1.addAll(pastAdresses.get(i));
             if (i > 0){
-                enabledAdresses2.addAll(pastAdresses.get(i));
+                enabledAddresses2.addAll(pastAdresses.get(i));
             }
         }
 
-        System.out.println(array.size());
-
         for (DatagramPacket p : array){
             byte[] data = p.getData();
-            /*String data  = new String(Arrays.copyOfRange(bytes, 0, Arrays.));
-            data.
-            ArrayList<Character> characters = new ArrayList<>();
 
-            System.out.println("String end");
-            */
-            String str = new String(data);
-            str = str.substring(0, str.indexOf(0));
-            /*for (int i = 0; i < str.length(); i++){
-                System.out.println("simb " + str.substring(i, i+1));
-            }*/
+            String encryptedStr = new String(data);
+            encryptedStr = encryptedStr.substring(0, encryptedStr.indexOf(0));
+            String str;
+            try{
+                str = decrypt(encryptedStr, SECRET_KEY);
+            }
+            catch (Exception e){
+                str = encryptedStr;
+            }
+
             long time;
             try {
                 time = Long.parseLong(str);
             }
             catch (Exception e){
-                System.out.println(e.toString());
                 continue;
             }
-            /*System.out.println(mintime);
-            System.out.println("Time from packet " + Long.toString(time));
-            System.out.println(maxtime);*/
             if (time>=mintime && time<=maxtime){
-                newEnabledAdresses.add(p.getAddress());
-                //System.out.println(enableAdresses);
+                newEnabledAddresses.add(p.getAddress());
             }
-            enabledAdresses2.addAll(newEnabledAdresses);
+            enabledAddresses2.addAll(newEnabledAddresses);
         }
-        if (!enabledAdresses1.containsAll(enabledAdresses2) ||
-                !enabledAdresses2.containsAll(enabledAdresses1)){
-            System.out.println(enabledAdresses2.toString());
+
+        if (!enabledAddresses1.containsAll(enabledAddresses2) ||
+                !enabledAddresses2.containsAll(enabledAddresses1)){
+            System.out.println("###NEW CHANGES###");
+            System.out.println("Enabled addresses(" + enabledAddresses2.size() + "):");
+            for (InetAddress address: enabledAddresses2){
+                System.out.println(address.toString());
+            }
+
+            HashSet<InetAddress> newAddrs = new HashSet<>();
+            newAddrs.addAll(enabledAddresses2);
+            newAddrs.removeAll(enabledAddresses1);
+            System.out.println("New addresses(" + newAddrs.size() + "):");
+            for (InetAddress address: newAddrs) {
+                System.out.println(address.toString());
+            }
+
+            HashSet<InetAddress> disAddrs = new HashSet<>();
+            disAddrs.addAll(enabledAddresses1);
+            disAddrs.removeAll(enabledAddresses2);
+            System.out.println("Just disabled addresses(" + disAddrs.size() + "):");
+            for (InetAddress address: disAddrs) {
+                System.out.println(address.toString());
+            }
+            System.out.println();
+
         }
         pastAdresses.remove(0);
-        pastAdresses.add(newEnabledAdresses);
-        return enabledAdresses2.size();
+        pastAdresses.add(newEnabledAddresses);
+        return enabledAddresses2.size();
     }
+
+
 
     public static void main(String[] args) {
         String address;
         int port;
-        try {
-            address = args[0];
-        }
-        catch (Exception e){
-            System.out.println(e.toString());
-            System.out.println("Problem with 1st arg, please give ip address");
+        if (args.length<2){
+            System.out.println("Too few arguments. please give ip and port.");
             return;
         }
+        address = args[0];
+
         try {
             port = Integer.valueOf(args[1]);
         }
@@ -141,16 +169,28 @@ public class main {
         for (int i = 0; i < ITERATIONS_TO_DELETE; i++){
             pastAdresses.add(new HashSet<>());
         }
-
-
+        NetworkInterface networkInterface = null;
+        if (args.length > 2){
+            try {
+                networkInterface = NetworkInterface.getByName(args[2]);
+            }
+            catch (Exception e) {
+                System.out.println(e);
+            }
+        }
 
         MulticastSocket multicastSocket;
-        InetAddress multicastAddress;
+        InetSocketAddress multicastAddress;
         try {
-            multicastAddress = InetAddress.getByName(address);
+            multicastAddress = new InetSocketAddress(InetAddress.getByName(address), port);
             multicastSocket = new MulticastSocket(port);
             multicastSocket.setSoTimeout(SOCKET_TIMEOUT);
-            multicastSocket.joinGroup(multicastAddress);
+            if (networkInterface != null) {
+                multicastSocket.joinGroup(multicastAddress, networkInterface);
+            }
+            else {
+                multicastSocket.joinGroup(multicastAddress.getAddress());
+            }
 
             System.out.println("Socket is created");
         }
@@ -159,21 +199,22 @@ public class main {
             return;
         }
 
-        DatagramPacket sendingDatagram = new DatagramPacket(new byte[400], 400);
-        sendingDatagram.setData("ZDAROVA".getBytes());
+        DatagramPacket sendingDatagram = new DatagramPacket(new byte[SIZE_OF_DATAGRAMS], SIZE_OF_DATAGRAMS);
         sendingDatagram.setPort(port);
-        sendingDatagram.setAddress(multicastAddress);
+        sendingDatagram.setAddress(multicastAddress.getAddress());
 
         Thread sender = new SenderThread(multicastSocket, sendingDatagram);
         sender.start();
+
         ArrayList<DatagramPacket> datagramArray = new ArrayList<>();
         long lastTime = System.currentTimeMillis();
 
-        for(int itime = 0; itime<1000; itime++){
+        while (true){
 
-            var datagram = new DatagramPacket(new byte[400], 400);
+            var datagram = new DatagramPacket(new byte[SIZE_OF_DATAGRAMS], SIZE_OF_DATAGRAMS);
             try {
                 multicastSocket.receive(datagram);
+
                 datagramArray.add(datagram);
             }
             catch (SocketTimeoutException e){}
@@ -183,24 +224,12 @@ public class main {
             }
             long curTime = System.currentTimeMillis();
             if (curTime - lastTime >= TIME_TO_RECEIVE){
-                checkDatagramArray(datagramArray, lastTime-TIME_TO_RECEIVE, curTime);
-                //System.out.println(checkDatagramArray(datagramArray, lastTime-TIME_TO_RECEIVE, curTime));
+                checkDatagramArray(datagramArray, lastTime-SIZE_OF_TIME_ERROR, curTime+SIZE_OF_TIME_ERROR);
                 lastTime = curTime;
                 datagramArray.clear();
             }
 
-
-
         }
-
-        try {
-            multicastSocket.leaveGroup(InetAddress.getByName(address));
-        }
-        catch (Exception e){
-            System.out.println(e.toString());
-            return;
-        }
-
 
     }
 }
