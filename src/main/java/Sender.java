@@ -1,6 +1,10 @@
 import java.net.DatagramPacket;
 import java.net.MulticastSocket;
 
+/**
+ * The {@code Sender} class sending encrypted messages with current time every ({@code period}) milliseconds.
+ */
+
 public class Sender implements Runnable{
     MulticastSocket multicastSocket;
     DatagramPacket datagramPacket;
